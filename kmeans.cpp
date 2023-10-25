@@ -87,8 +87,6 @@ int main(int argc, char* argv[]) {
             iss >> points[point_index][j];
         }
     }
-    // printf("points\n");
-    // print(points, num_points, dims);
 
     // INIT CENTROIDS
     // make centroids dims-dimensional array (x1, x2, ..., xdim)
@@ -98,46 +96,29 @@ int main(int argc, char* argv[]) {
     }
     // initialize centroids
     srand(seed);
-    // printf("init centroids vals = ");
     for(int i=0;i<num_cluster;i++) {
         int point_index = (int) (rand_float() * num_points); // the index of the point that will be used for this centroid
-        // printf("%d ", point_index);
         for(int j=0;j<dims;j++) {
             centroids[i][j] = points[point_index][j];
         }
     }
-    // printf("\n");
-    // printf("initial centroids\n");
-    // print(centroids, num_cluster, dims);
-    // printf("\n");
 
     // HOST & DEVICE POINTER ALLOCATED
-
-    // WRAPPER FUNCTION CALLED TO START KMEANS
-    int iteration = 0;
     double** old_centroids = new double*[num_cluster];
     for(int i=0; i<num_cluster; i++) {
         old_centroids[i] = new double[dims];
     }
     int* labels = new int[num_points];
-    bool done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
-    while(!done) {
-        // old_centroids = centroids
-        for(int r=0;r<num_cluster;r++) {
-            for(int c=0;c<dims;c++) {
-                old_centroids[r][c] = centroids[r][c];
-            }
-        }
-        iteration++;
-        findNearestCentroids(points, labels, centroids, num_points, num_cluster, dims);
-        // printf("LABELS\n");
-        // print(labels, num_points);
-        averageLabeledCentroids(points, labels, num_cluster, num_points, centroids, dims);
-        // printf("ITERATION %d\n", iteration);
-        // print(centroids, num_cluster, dims);
-        // printf("\n");
-        done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
+
+    // WRAPPER FUNCTION CALLED TO START KMEANS
+
+    if(gpu) {
+
+    } else {
+        seq_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
     }
+    
+    // PRINT OUTPUTS
     printf("FINAL:\n");
     if(output) {
         printCentroids(centroids, num_cluster, dims);

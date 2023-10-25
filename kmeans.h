@@ -7,6 +7,23 @@
 
 using namespace std;
 
+void printClusterIds(int* labels, int num_points) {
+    printf("clusters:");
+    for(int i=0;i<num_points;i++) {
+        printf(" %d", labels[i]);
+    }     
+}
+
+void printCentroids(double** centroids, int num_clusters, int dims) {
+    for (int clusterId=0; clusterId<num_clusters; clusterId++) {
+        printf("%d", clusterId);
+        for (int d=0; d<dims; d++) {
+            printf(" %lf", centroids[clusterId][d]);
+        }   
+        printf("\n");
+    }
+}
+
 void print(double** arr, int rows, int cols) {
     for(int r=0;r<rows;r++) {
         for(int c=0;c<cols;c++) {
@@ -65,8 +82,6 @@ void findNearestCentroids(double** points, int* labels, double** centroids, int 
             distances[r][c] = calcDistance(point, centroids[c], dims);
         }
     }
-    // printf("DISTANCES\n");
-    // print(distances, num_points, num_clusters);
     // take argmax based on index
     for(int i=0;i<num_points;i++) {
         labels[i] = findMinDistance(distances[i], num_clusters);
@@ -90,8 +105,6 @@ void averageLabeledCentroids(double** points, int* labels, int num_clusters, int
     // sum up across labels, track frequencies
     int* freqs = new int[num_clusters];
     for(int i=0;i<num_clusters;i++) freqs[i] = 0;
-    // printf("init freqs\n");
-    // print(freqs, num_clusters);
     for(int i=0;i<num_points;i++) {
         double* point = points[i];
         int label = labels[i];
@@ -100,10 +113,6 @@ void averageLabeledCentroids(double** points, int* labels, int num_clusters, int
         }
         freqs[label]++;
     }
-    // printf("after summed\n");
-    // print(centroids, num_clusters, dims);
-    // printf("freqs\n");
-    // print(freqs, num_clusters);
     // divide each centroid value by its frequency
     for(int i=0;i<num_clusters;i++) {
         double* centroid = centroids[i];
@@ -153,19 +162,19 @@ bool converged(double** centroids, double** oldCentroids, double threshold, int 
     return true;
 }
 
-void printClusterIds(int* labels, int num_points) {
-    printf("clusters:");
-    for(int i=0;i<num_points;i++) {
-        printf(" %d", labels[i]);
-    }     
-}
-
-void printCentroids(double** centroids, int num_clusters, int dims) {
-    for (int clusterId=0; clusterId<num_clusters; clusterId++) {
-        printf("%d", clusterId);
-        for (int d=0; d<dims; d++) {
-            printf(" %lf", centroids[clusterId][d]);
-        }   
-        printf("\n");
+// runs k means sequential algorithm. labels & centroids arrays point to the final labels & centroids after algorithm is run
+void seq_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points) {
+    int iteration = 0;
+    bool done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
+    while(!done) {
+        for(int r=0;r<num_cluster;r++) {
+            for(int c=0;c<dims;c++) {
+                old_centroids[r][c] = centroids[r][c];
+            }
+        }
+        iteration++;
+        findNearestCentroids(points, labels, centroids, num_points, num_cluster, dims);
+        averageLabeledCentroids(points, labels, num_cluster, num_points, centroids, dims);
+        done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
     }
 }
