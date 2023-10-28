@@ -14,8 +14,8 @@ void printClusterIds(int* labels, int num_points) {
     }     
 }
 
-void printCentroids(double** centroids, int num_clusters, int dims) {
-    for (int clusterId=0; clusterId<num_clusters; clusterId++) {
+void printCentroids(double** centroids, int num_cluster, int dims) {
+    for (int clusterId=0; clusterId<num_cluster; clusterId++) {
         printf("%d", clusterId);
         for (int d=0; d<dims; d++) {
             printf(" %lf", centroids[clusterId][d]);
@@ -46,10 +46,10 @@ float rand_float() {
 }
 
 // returns index of minimum distance in the array (will be the cluster number)
-int findMinDistance(double* distances, int num_clusters) {
+int findMinDistance(double* distances, int num_cluster) {
     double minDist = DBL_MAX;
     int index = -1;
-    for(int i=0;i<num_clusters;i++) {
+    for(int i=0;i<num_cluster;i++) {
         double distance = distances[i];
         if(distance<minDist) {
             minDist = distance;
@@ -69,22 +69,21 @@ double calcDistance(double* p1, double* p2, int dims) {
 }
 
 // overrides values currently in labels
-void findNearestCentroids(double** points, int* labels, double** centroids, int num_points, int num_clusters, int dims) {
+void findNearestCentroids(double** points, int* labels, double** centroids, int num_points, int num_cluster, int dims) {
     // make array to store distances
-    double** distances = new double*[num_points]; // num_points x num_clusters 
+    double** distances = new double*[num_points]; // num_points x num_cluster
     for(int i=0; i<num_points; i++) {
-        distances[i] = new double[num_clusters];
+        distances[i] = new double[num_cluster];
     }
     // calc all distances
     for(int r=0;r<num_points;r++) {
-        double* point = points[r];
-        for(int c=0;c<num_clusters;c++) {
-            distances[r][c] = calcDistance(point, centroids[c], dims);
+        for(int c=0;c<num_cluster;c++) {
+            distances[r][c] = calcDistance(points[r], centroids[c], dims);
         }
     }
     // take argmax based on index
     for(int i=0;i<num_points;i++) {
-        labels[i] = findMinDistance(distances[i], num_clusters);
+        labels[i] = findMinDistance(distances[i], num_cluster);
     }
     // free distances memory
     for(int i=0; i<num_points; i++) {
@@ -95,26 +94,24 @@ void findNearestCentroids(double** points, int* labels, double** centroids, int 
 
 // new centroids = average of all points that map to each centroid
 // overrides values currently in centroids
-void averageLabeledCentroids(double** points, int* labels, int num_clusters, int num_points, double** centroids, int dims) {
+void averageLabeledCentroids(double** points, int* labels, int num_cluster, int num_points, double** centroids, int dims) {
     // zero out all the centroid values
-    for(int r=0;r<num_clusters;r++) {
+    for(int r=0;r<num_cluster;r++) {
         for(int c=0;c<dims;c++) {
             centroids[r][c] = 0.0;
         }
     }
     // sum up across labels, track frequencies
-    int* freqs = new int[num_clusters];
-    for(int i=0;i<num_clusters;i++) freqs[i] = 0;
+    int* freqs = new int[num_cluster];
+    for(int i=0;i<num_cluster;i++) freqs[i] = 0;
     for(int i=0;i<num_points;i++) {
-        double* point = points[i];
-        int label = labels[i];
         for(int j=0;j<dims;j++) {
-            centroids[label][j] += point[j];
+            centroids[labels[i]][j] += points[i][j];
         }
-        freqs[label]++;
+        freqs[labels[i]]++;
     }
     // divide each centroid value by its frequency
-    for(int i=0;i<num_clusters;i++) {
+    for(int i=0;i<num_cluster;i++) {
         double* centroid = centroids[i];
         int freq = freqs[i];
         for(int j=0;j<dims;j++) {
@@ -142,11 +139,11 @@ double calcDistance(const vector<double> &p1, const vector<double> &p2, int dims
 }
 
 // returns true if the centroids have converged (difference between old and new centroid is below a threshold)
-bool converged(double** centroids, double** oldCentroids, double threshold, int num_clusters, int dims) {
+bool converged(double** centroids, double** oldCentroids, double threshold, int num_cluster, int dims) {
     // init sorted vectors
-    vector<vector<double>> centroidSorted(num_clusters, vector<double>(dims));
-    vector<vector<double>> centroidOldSorted(num_clusters, vector<double>(dims));
-    for (int i = 0; i < num_clusters; i++) {
+    vector<vector<double>> centroidSorted(num_cluster, vector<double>(dims));
+    vector<vector<double>> centroidOldSorted(num_cluster, vector<double>(dims));
+    for (int i = 0; i < num_cluster; i++) {
         for (int j = 0; j < dims; j++) {
             centroidSorted[i][j] = centroids[i][j];
             centroidOldSorted[i][j] = oldCentroids[i][j];
@@ -156,7 +153,7 @@ bool converged(double** centroids, double** oldCentroids, double threshold, int 
     sort(centroidSorted.begin(), centroidSorted.end(), compare);
     sort(centroidOldSorted.begin(), centroidOldSorted.end(), compare);
     // make sure all points are within threshold of each other
-    for(int i=0;i<num_clusters;i++) {
+    for(int i=0;i<num_cluster;i++) {
         if(calcDistance(centroidSorted[i], centroidOldSorted[i], dims)>threshold) return false;
     }
     return true;

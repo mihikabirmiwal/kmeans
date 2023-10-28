@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include "kmeans.h"
+#include "kmeans_cuda.h"
 
 using namespace std;
 
@@ -104,6 +105,7 @@ int main(int argc, char* argv[]) {
     }
 
     // HOST & DEVICE POINTER ALLOCATED
+    // host memory
     double** old_centroids = new double*[num_cluster];
     for(int i=0; i<num_cluster; i++) {
         old_centroids[i] = new double[dims];
@@ -113,7 +115,7 @@ int main(int argc, char* argv[]) {
     // WRAPPER FUNCTION CALLED TO START KMEANS
 
     if(gpu) {
-
+        gpu_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
     } else {
         seq_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
     }
