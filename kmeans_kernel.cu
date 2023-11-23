@@ -1,4 +1,3 @@
-// PUT ALL CUDA KERNELS 
 #include <iostream>
 #include <cfloat>
 #include <cstdio>
@@ -26,7 +25,7 @@ __device__ int findMinDistanceCuda(double* distances, int num_cluster) {
     return index;
 }
 
-// d_distances: num_points x num_cluster
+// d_distances: num_points x num_cluster [flattened]
 // will be called with <<<num_points, num_cluster>>>
 __global__ void calc_distances(double* d_distances, double* d_points, double* d_centroids, int dims, int num_cluster) {
     d_distances[blockIdx.x*num_cluster+threadIdx.x] = calcDistanceCuda(&d_points[blockIdx.x*dims], &d_centroids[threadIdx.x*dims], dims);
@@ -58,12 +57,13 @@ void findNearestCentroidsCuda(double* d_points, int* d_labels, double* d_centroi
     cudaFree(d_distances);
 }
 
-// d_centroids: num_cluster x dims
-// will be called with <<<num_cluster, dims>>> in 1st call in averageLabeledCentroidsCuda
+// d_centroids: num_cluster x dims [flattened]
+// will be called with <<<num_cluster, dims>>> in averageLabeledCentroidsCuda
 __global__ void zeroOut(double* d_centroids, int dims) {
     d_centroids[blockIdx.x*dims+threadIdx.x] = 0.0;
 }
 
+// found this implementation online, this is not my function!
 __device__ double doubleAtomicAdd(double* address, double val)
 {
     unsigned long long int* address_as_ull =
@@ -108,13 +108,15 @@ __global__ void divideAcrossLabels(double* d_centroids, int* d_freqs, int dims) 
 
 void averageLabeledCentroidsCuda(double* d_points, int* d_labels, int num_cluster, int num_points, double* d_centroids, int dims) {
     // zero out all the centroid values
-    zeroOut<<<num_cluster, dims>>>(d_centroids, dims);
+    cudaMemset(d_centroids, 0.0, num_cluster * dims * sizeof(double));
     cudaDeviceSynchronize();
     
     // sum up across labels, track frequencies
     int *d_freqs;
     cudaMalloc((void**)&d_freqs, num_cluster * sizeof(int));
     cudaMemset(d_freqs, 0, num_cluster * sizeof(int));
+    cudaDeviceSynchronize();
+    
     sumPointsAcrossLabels<<<num_points, dims>>>(d_labels, d_centroids, d_points, dims);
     // NOTE: do i need to synch here?
     // NOTE: not sure if this math is correct. assuming 32 threads/block
@@ -183,7 +185,6 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
         findNearestCentroidsCuda(d_points, d_labels, d_centroids, num_points, num_cluster, dims);
         averageLabeledCentroidsCuda(d_points, d_labels, num_cluster, num_points, d_centroids, dims);
         done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
-        printf("iteration: %d\n", iteration);
     }
 
     // copy over data back to host memory
