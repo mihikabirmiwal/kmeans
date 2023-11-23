@@ -1,4 +1,8 @@
 // ALL WRAPPER FUNCTIONS DECLARED HERE
+#pragma once
+#ifndef KMEANS_FUNCTIONS_H
+#define KMEANS_FUNCTIONS_H
+
 #include <vector>
 #include <cmath>
 #include <cfloat>
@@ -140,21 +144,8 @@ double calcDistance(const vector<double> &p1, const vector<double> &p2, int dims
 
 // returns true if the centroids have converged (difference between old and new centroid is below a threshold)
 bool converged(double** centroids, double** oldCentroids, double threshold, int num_cluster, int dims) {
-    // init sorted vectors
-    vector<vector<double>> centroidSorted(num_cluster, vector<double>(dims));
-    vector<vector<double>> centroidOldSorted(num_cluster, vector<double>(dims));
-    for (int i = 0; i < num_cluster; i++) {
-        for (int j = 0; j < dims; j++) {
-            centroidSorted[i][j] = centroids[i][j];
-            centroidOldSorted[i][j] = oldCentroids[i][j];
-        }
-    }
-    // sort the vectors so that we are comparing the correct centroids
-    sort(centroidSorted.begin(), centroidSorted.end(), compare);
-    sort(centroidOldSorted.begin(), centroidOldSorted.end(), compare);
-    // make sure all points are within threshold of each other
     for(int i=0;i<num_cluster;i++) {
-        if(calcDistance(centroidSorted[i], centroidOldSorted[i], dims)>threshold) return false;
+        if(calcDistance(centroids[i], oldCentroids[i], dims)>threshold) return false;
     }
     return true;
 }
@@ -175,3 +166,5 @@ void seq_kmeans(double** centroids, double** old_centroids, double** points, int
         done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
     }
 }
+
+#endif

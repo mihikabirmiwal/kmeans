@@ -1,6 +1,7 @@
 // PUT ALL CUDA KERNELS 
 #include <iostream>
-#include "kmeans.h"
+#include <cfloat>
+#include <cstdio>
 
 // returns the double distance between 2 dims-dimensional points
 __device__ double calcDistanceCuda(double* p1, double* p2, int dims) {
@@ -10,15 +11,6 @@ __device__ double calcDistanceCuda(double* p1, double* p2, int dims) {
     }
     return sqrt(sum);
 }
-
-// // returns the double distance between 2 dims-dimensional points
-// __device__ double calcDistanceVectorCuda(const vector<double> &p1, const vector<double> &p2, int dims) {
-//     double sum = 0.0;
-//     for(int i=0;i<dims;i++) {
-//         sum += pow(p1[i]-p2[i], 2);
-//     }
-//     return sqrt(sum);
-// }
 
 // returns index of minimum distance in the array (will be the cluster number)
 __device__ int findMinDistanceCuda(double* distances, int num_cluster) {
@@ -33,15 +25,6 @@ __device__ int findMinDistanceCuda(double* distances, int num_cluster) {
     }
     return index;
 }
-
-// // returns the double distance between 2 dims-dimensional points
-// __device__ double calcDistanceCuda(const vector<double> &p1, const vector<double> &p2, int dims) {
-//     double sum = 0.0;
-//     for(int i=0;i<dims;i++) {
-//         sum += pow(p1[i]-p2[i], 2);
-//     }
-//     return sqrt(sum);
-// }
 
 // d_distances: num_points x num_cluster
 // will be called with <<<num_points, num_cluster>>>
@@ -87,8 +70,7 @@ __global__ void zeroOut(double** d_centroids) {
     d_centroids[blockIdx.x][threadIdx.x] = 0.0;
 }
 
-#if __CUDA_ARCH__ < 600
-__device__ double atomicAdd(double* address, double val)
+__device__ double doubleAtomicAdd(double* address, double val)
 {
     unsigned long long int* address_as_ull =
                               (unsigned long long int*)address;
@@ -105,14 +87,13 @@ __device__ double atomicAdd(double* address, double val)
 
     return __longlong_as_double(old);
 }
-#endif
 
 // will be called with <<<num_points, dims>>>
 __global__ void sumPointsAcrossLabels(int* d_labels, double** d_centroids, double** d_points) {
     int row = blockIdx.x;
     int col = threadIdx.x;
     int label = d_labels[row];
-    atomicAdd(&d_centroids[label][col], d_points[row][col]);
+    doubleAtomicAdd(&d_centroids[label][col], d_points[row][col]);
 }
 
 // NOTE: will be called with <<<1, num_points>>>
@@ -154,36 +135,20 @@ void averageLabeledCentroidsCuda(double** d_points, int* d_labels, int num_clust
 
 // will be called with <<<1, num_cluster>>>
 // arr[0] will contain the number of distances above the threshold
-__global__ void checkDistanceAboveThresh(int* arr, double threshold, int dims, int num_cluster, const vector<vector<double>> &centroidSorted, const vector<vector<double>> &centroidOldSorted) {
+__global__ void checkDistanceAboveThresh(int* arr, double threshold, int dims, int num_cluster, double** d_centroids, double** d_oldCentroids) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index < num_cluster) {
-        if(calcDistance(centroidSorted[index], centroidOldSorted[index], dims)>threshold) atomicAdd(&arr[0], 1);
+        if(calcDistanceCuda(d_centroids[index], d_oldCentroids[index], dims)>threshold) atomicAdd(&arr[0], 1);
     }
 }
 
 bool convergedCuda(double** d_centroids, double** d_oldCentroids, double threshold, int num_cluster, int dims) {
-    // init sorted vectors
-    vector<vector<double>> d_centroidSorted(num_cluster, vector<double>(dims));
-    vector<vector<double>> d_centroidOldSorted(num_cluster, vector<double>(dims));
-    for (int i = 0; i < num_cluster; i++) {
-        for (int j = 0; j < dims; j++) {
-            d_centroidSorted[i][j] = d_centroids[i][j];
-            d_centroidOldSorted[i][j] = d_oldCentroids[i][j];
-        }
-    }
-
-    // sort the vectors so that we are comparing the correct centroids
-    sort(d_centroidSorted.begin(), d_centroidSorted.end(), compare);
-    sort(d_centroidOldSorted.begin(), d_centroidOldSorted.end(), compare);
-
-    // make sure all points are within threshold of each other
     int *d_arr;
     cudaMalloc((void**)&d_arr, sizeof(int));
-    checkDistanceAboveThresh<<<1, num_cluster>>>(d_arr, threshold, dims, num_cluster, d_centroidSorted, d_centroidOldSorted);
+    checkDistanceAboveThresh<<<1, num_cluster>>>(d_arr, threshold, dims, num_cluster, d_centroids, d_oldCentroids);
     cudaDeviceSynchronize();
     bool hasConverged = d_arr[0] == 0;
     cudaFree(d_arr);
-
     return hasConverged;
 }
 
@@ -191,6 +156,8 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
     // allocate device memory & copy over data
     double **d_points, **d_centroids, **d_old_centroids;
     int *d_labels;
+
+    printf("start of gpu_kmeans\n");
 
     cudaMalloc((void**)&d_points, num_points * sizeof(double*));
     for(int i = 0; i < num_points; i++) {
@@ -210,20 +177,31 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
     cudaMalloc((void**)&d_labels, num_points * sizeof(int));
     cudaMemcpy(d_labels, labels, num_points * sizeof(int), cudaMemcpyHostToDevice);
 
+    printf("Line: %d\n", 177);
 
     int iteration = 0;
     bool done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
-    while(!done) {
+    while(!done) {  
         for(int r=0;r<num_cluster;r++) {
-            for(int c=0;c<dims;c++) {
-                d_old_centroids[r][c] = d_centroids[r][c];
-            }
+            cudaMemcpy(d_old_centroids[r], d_centroids[r], dims * sizeof(double), cudaMemcpyDeviceToDevice);
         }
         iteration++;
         findNearestCentroidsCuda(d_points, d_labels, d_centroids, num_points, num_cluster, dims);
         averageLabeledCentroidsCuda(d_points, d_labels, num_cluster, num_points, d_centroids, dims);
         done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
     }
+
+    // copy over data back to host memory
+    for(int i = 0; i < num_points; i++) {
+        cudaMemcpy(points[i], d_points[i], dims * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    for(int i = 0; i < num_cluster; i++) {
+        cudaMemcpy(centroids[i], d_centroids[i], dims * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    for(int i = 0; i < num_cluster; i++) {
+        cudaMemcpy(old_centroids[i], d_old_centroids[i], dims * sizeof(double), cudaMemcpyDeviceToHost);
+    }
+    cudaMemcpy(labels, d_labels, num_points * sizeof(int), cudaMemcpyDeviceToHost);
 
     // free all device memory
     for(int i=0; i<num_points; i++) {
