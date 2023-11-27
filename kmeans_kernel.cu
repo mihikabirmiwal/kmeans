@@ -213,6 +213,8 @@ float rand_float_cuda() {
     return static_cast<float>(rand()) / static_cast<float> ((long long) RAND_MAX+1);
 }
 
+// calculates distance of every point to the closest centroid that has already been picked, stores in d_D array
+// will be operating once per point
 __global__ void kmeansplusplus_kernel(int num_pts, double* d_D, int* d_centroid_indices, double* d_points, int alr_selected, int dims) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index<num_pts) {
@@ -269,5 +271,12 @@ int* kmeansplusplus_init_centroids(int num_cluster, double** points, int num_pts
             }
         }
     }
+
+    // free all memory
+    cudaFree(d_points);
+    cudaFree(d_D);
+    cudaFree(d_centroid_indices);
+    delete[] D;
+
     return centroid_indices;
 }
