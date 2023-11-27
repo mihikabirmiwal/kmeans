@@ -97,12 +97,23 @@ int main(int argc, char* argv[]) {
     }
     // initialize centroids
     srand(seed);
-    for(int i=0;i<num_cluster;i++) {
-        int point_index = (int) (rand_float() * num_points); // the index of the point that will be used for this centroid
-        for(int j=0;j<dims;j++) {
-            centroids[i][j] = points[point_index][j];
+    if(kmeans_plus_plus) {
+        int* init_pts = kmeansplusplus_init_centroids(num_cluster, points, num_points, dims);
+        for(int i=0;i<num_cluster;i++) {
+            int point_index = init_pts[i];
+            for(int j=0;j<dims;j++) {
+                centroids[i][j] = points[point_index][j];
+            }
+        }
+    } else {
+        for(int i=0;i<num_cluster;i++) {
+            int point_index = (int) (rand_float() * num_points); // the index of the point that will be used for this centroid
+            for(int j=0;j<dims;j++) {
+                centroids[i][j] = points[point_index][j];
+            }
         }
     }
+
 
     // HOST & DEVICE POINTER ALLOCATED
     // host memory

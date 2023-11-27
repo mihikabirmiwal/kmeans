@@ -1,1 +1,2 @@
 void gpu_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points);
+int* kmeansplusplus_init_centroids(int num_centroids, double** points, int num_pts, int dims);

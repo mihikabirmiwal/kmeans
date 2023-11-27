@@ -1,6 +1,8 @@
 #include <iostream>
 #include <cfloat>
 #include <cstdio>
+#include <vector>
+#include <cmath>
 
 // returns the double distance between 2 dims-dimensional points
 __device__ double calcDistanceCuda(double* p1, double* p2, int dims) {
@@ -204,4 +206,68 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
     cudaFree(d_centroids);
     cudaFree(d_old_centroids);
     cudaFree(d_labels);
+}
+
+// return random floating-point value in [0.0, 1.0)
+float rand_float_cuda() {
+    return static_cast<float>(rand()) / static_cast<float> ((long long) RAND_MAX+1);
+}
+
+__global__ void kmeansplusplus_kernel(int num_pts, double* d_D, int* d_centroid_indices, double* d_points, int alr_selected, int dims) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if(index<num_pts) {
+        double shortest_dist = DBL_MAX;
+        for(int i=0;i<alr_selected;i++) {
+            int centroid_index = d_centroid_indices[i];
+            double distance = calcDistanceCuda(&d_points[centroid_index*dims], &d_points[index*dims], dims);
+            if(distance<shortest_dist) {
+                shortest_dist = distance;
+            }
+        }
+        d_D[index] = shortest_dist;
+    }
+}
+
+int* kmeansplusplus_init_centroids(int num_cluster, double** points, int num_pts, int dims) {
+    int* centroid_indices = new int[num_cluster];
+    centroid_indices[0] = (int) (rand_float_cuda()*num_pts); // stores indices we have picked so far
+    double* D = new double[num_pts]; // stores distances
+    int index = 1;
+
+    double* d_points;
+    double* d_D;
+    int* d_centroid_indices;
+
+    cudaMalloc((void**) &d_points, num_pts * dims * sizeof(double));
+    cudaMalloc((void**) &d_D, num_pts * sizeof(double));
+    cudaMalloc((void**) &d_centroid_indices, num_cluster * sizeof(int));
+
+    for(int i=0; i<num_pts; i++) {
+        cudaMemcpy(&d_points[i*dims], points[i], dims * sizeof(double), cudaMemcpyHostToDevice);
+    }
+
+    while (index < num_cluster) {
+        // Here, you`ll need to compute D(x) for all points.
+        cudaMemcpy(d_centroid_indices, centroid_indices, num_cluster * sizeof(int), cudaMemcpyHostToDevice);
+        kmeansplusplus_kernel<<<(num_pts+32-1)/32, 32>>>(num_pts, d_D, d_centroid_indices, d_points, index, dims);
+        cudaDeviceSynchronize();
+        cudaMemcpy(D, d_D, num_pts * sizeof(double), cudaMemcpyDeviceToHost);
+
+        // Choose a new initial centroid
+        float total_dist = 0.0;
+        for (int i = 0; i < num_pts; i++) {
+            total_dist += D[i]*D[i];
+        }
+        float target = rand_float_cuda() * total_dist;
+        float dist = 0.0;
+        for (int i = 0; i < num_pts; i++) {
+            dist += D[i]*D[i];
+            if (target < dist) {
+                centroid_indices[index] = i;
+                index++;
+                break;
+            }
+        }
+    }
+    return centroid_indices;
 }
