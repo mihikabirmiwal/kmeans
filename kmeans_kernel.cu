@@ -29,7 +29,7 @@ __device__ int findMinDistanceCuda(double* distances, int num_cluster) {
 
 // d_distances: num_points x num_cluster [flattened]
 // will be called with <<<num_points, num_cluster>>>
-__global__ void calc_distances(double* d_distances, double* d_points, double* d_centroids, int dims, int num_cluster) {
+__global__ void calcDistances(double* d_distances, double* d_points, double* d_centroids, int dims, int num_cluster) {
     d_distances[blockIdx.x*num_cluster+threadIdx.x] = calcDistanceCuda(&d_points[blockIdx.x*dims], &d_centroids[threadIdx.x*dims], dims);
 }
 
@@ -48,7 +48,7 @@ void findNearestCentroidsCuda(double* d_points, int* d_labels, double* d_centroi
     cudaMalloc((void**)&d_distances, num_points * num_cluster * sizeof(double));
 
     // calc all distances (writing to d_distances)
-    calc_distances<<<num_points, num_cluster>>>(d_distances, d_points, d_centroids, dims, num_cluster);
+    calcDistances<<<num_points, num_cluster>>>(d_distances, d_points, d_centroids, dims, num_cluster);    
     cudaDeviceSynchronize();
 
     // take argmax based on index (reading from d_distances)
@@ -57,12 +57,6 @@ void findNearestCentroidsCuda(double* d_points, int* d_labels, double* d_centroi
 
     // free distances memory
     cudaFree(d_distances);
-}
-
-// d_centroids: num_cluster x dims [flattened]
-// will be called with <<<num_cluster, dims>>> in averageLabeledCentroidsCuda
-__global__ void zeroOut(double* d_centroids, int dims) {
-    d_centroids[blockIdx.x*dims+threadIdx.x] = 0.0;
 }
 
 // found this implementation online, this is not my function!
@@ -97,7 +91,24 @@ __global__ void sumPointsAcrossLabels(int* d_labels, double* d_centroids, double
 __global__ void sumLabelFreqs(int* d_labels, int* d_freqs, int num_points) {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     if(index < num_points) {
-        atomicAdd(&d_freqs[d_labels[index]], 1);
+        int label = d_labels[index];
+        atomicAdd(&d_freqs[label], 1);
+    }
+}
+
+// will be called with <<<1, num_points>>>
+// shared memory section: num_points*sizeof(int)
+__global__ void sumLabelFreqsShmem(int* d_labels, int* d_freqs, int num_points) {
+    extern __shared__ int s_labels[];
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int lid = threadIdx.x;
+    if(index < num_points) {
+        // copy over data to shared memory
+        s_labels[lid] = d_labels[index];
+        __syncthreads();
+
+        int label = s_labels[lid];
+        atomicAdd(&d_freqs[label], 1);
     }
 }
 
@@ -108,7 +119,7 @@ __global__ void divideAcrossLabels(double* d_centroids, int* d_freqs, int dims) 
     d_centroids[row*dims+col] /= d_freqs[row];
 }
 
-void averageLabeledCentroidsCuda(double* d_points, int* d_labels, int num_cluster, int num_points, double* d_centroids, int dims) {
+void averageLabeledCentroidsCuda(double* d_points, int* d_labels, int num_cluster, int num_points, double* d_centroids, int dims, bool shared) {
     // zero out all the centroid values
     cudaMemset(d_centroids, 0.0, num_cluster * dims * sizeof(double));
     cudaDeviceSynchronize();
@@ -120,9 +131,12 @@ void averageLabeledCentroidsCuda(double* d_points, int* d_labels, int num_cluste
     cudaDeviceSynchronize();
     
     sumPointsAcrossLabels<<<num_points, dims>>>(d_labels, d_centroids, d_points, dims);
-    // NOTE: do i need to synch here?
-    // NOTE: not sure if this math is correct. assuming 32 threads/block
-    sumLabelFreqs<<<(num_points+32-1)/32, 32>>>(d_labels, d_freqs, num_points);
+    if(shared) {
+        sumLabelFreqsShmem<<<(num_points+32-1)/32, 32, num_points*sizeof(int)>>>(d_labels, d_freqs, num_points);
+    } else {
+        sumLabelFreqs<<<(num_points+32-1)/32, 32>>>(d_labels, d_freqs, num_points);
+    }
+    
     cudaDeviceSynchronize();
 
     // divide each centroid value by its frequency
@@ -159,7 +173,7 @@ bool convergedCuda(double* d_centroids, double* d_oldCentroids, double threshold
     return hasConverged;
 }
 
-void gpu_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points) {
+void gpu_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points, bool shared) {
     // allocate device memory & copy over data
     double *d_points, *d_centroids, *d_old_centroids;
     int *d_labels;
@@ -179,13 +193,14 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
     cudaMalloc((void**)&d_labels, num_points * sizeof(int));
     cudaMemcpy(d_labels, labels, num_points * sizeof(int), cudaMemcpyHostToDevice);
 
+    // run loop
     int iteration = 0;
     bool done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
     while(!done) { 
         cudaMemcpy(d_old_centroids, d_centroids, num_cluster * dims * sizeof(double), cudaMemcpyDeviceToDevice);
         iteration++;
         findNearestCentroidsCuda(d_points, d_labels, d_centroids, num_points, num_cluster, dims);
-        averageLabeledCentroidsCuda(d_points, d_labels, num_cluster, num_points, d_centroids, dims);
+        averageLabeledCentroidsCuda(d_points, d_labels, num_cluster, num_points, d_centroids, dims, shared);
         done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
     }
 

@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
     // WRAPPER FUNCTION CALLED TO START KMEANS
 
     if(gpu) {
-        gpu_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
+        gpu_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points, shared_mem);
     } else {
         seq_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
     }
