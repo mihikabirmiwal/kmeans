@@ -96,7 +96,7 @@ __global__ void sumLabelFreqs(int* d_labels, int* d_freqs, int num_points) {
     }
 }
 
-// will be called with <<<1, num_points>>>
+// will be called with <<<1, num_points>>> [mathy]
 // shared memory section: num_points*sizeof(int)
 __global__ void sumLabelFreqsShmem(int* d_labels, int* d_freqs, int num_points) {
     extern __shared__ int s_labels[];
@@ -173,8 +173,21 @@ bool convergedCuda(double* d_centroids, double* d_oldCentroids, double threshold
     return hasConverged;
 }
 
-void gpu_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points, bool shared) {
+// returns float*, [0]: mem_overhead_time, [1]: algo_time
+float* gpu_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points, bool shared) {
+    // time measurement
+    float temp = 0;
+    cudaEvent_t mem_overhead_start, mem_overhead_stop;
+    cudaEventCreate(&mem_overhead_start);
+    cudaEventCreate(&mem_overhead_stop);
+    float mem_overhead_time = 0;
+    cudaEvent_t algo_start, algo_stop;
+    cudaEventCreate(&algo_start);
+    cudaEventCreate(&algo_stop);
+    float algo_time = 0;
+
     // allocate device memory & copy over data
+    cudaEventRecord(mem_overhead_start);
     double *d_points, *d_centroids, *d_old_centroids;
     int *d_labels;
 
@@ -192,8 +205,13 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
     }
     cudaMalloc((void**)&d_labels, num_points * sizeof(int));
     cudaMemcpy(d_labels, labels, num_points * sizeof(int), cudaMemcpyHostToDevice);
+    cudaEventRecord(mem_overhead_stop);
+    cudaEventSynchronize(mem_overhead_stop);
+    cudaEventElapsedTime(&temp, mem_overhead_start, mem_overhead_stop);
+    mem_overhead_time += temp;
 
     // run loop
+    cudaEventRecord(algo_start);
     int iteration = 0;
     bool done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
     while(!done) { 
@@ -203,7 +221,12 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
         averageLabeledCentroidsCuda(d_points, d_labels, num_cluster, num_points, d_centroids, dims, shared);
         done = iteration >= max_num_iter || convergedCuda(d_centroids, d_old_centroids, threshold, num_cluster, dims);
     }
+    cudaEventRecord(algo_stop);
+    cudaEventSynchronize(algo_stop);
+    cudaEventElapsedTime(&temp, algo_start, algo_stop);
+    algo_time = temp;
 
+    cudaEventRecord(mem_overhead_start);
     // copy over data back to host memory
     for(int i = 0; i < num_points; i++) {
         cudaMemcpy(points[i], &d_points[i*dims], dims * sizeof(double), cudaMemcpyDeviceToHost);
@@ -221,6 +244,16 @@ void gpu_kmeans(double** centroids, double** old_centroids, double** points, int
     cudaFree(d_centroids);
     cudaFree(d_old_centroids);
     cudaFree(d_labels);
+    cudaEventRecord(mem_overhead_stop);
+    cudaEventSynchronize(mem_overhead_stop);
+    cudaEventElapsedTime(&temp, mem_overhead_start, mem_overhead_stop);
+    mem_overhead_time += temp;
+    
+    // return times
+    float* times = new float[2];
+    times[0] = mem_overhead_time;
+    times[1] = algo_time;
+    return times;
 }
 
 // return random floating-point value in [0.0, 1.0)

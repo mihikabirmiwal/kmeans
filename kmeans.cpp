@@ -9,6 +9,7 @@
 using namespace std;
 
 int main(int argc, char* argv[]) {
+    auto start = chrono::high_resolution_clock::now();
     // PARSE COMMAND LINE ARGUMENTS
     int opt;
 
@@ -90,6 +91,7 @@ int main(int argc, char* argv[]) {
     }
 
     // INIT CENTROIDS
+    auto init_start = chrono::high_resolution_clock::now();
     // make centroids dims-dimensional array (x1, x2, ..., xdim)
     double** centroids = new double*[num_cluster]; // num_cluster x dims 
     for(int i=0; i<num_cluster; i++) {
@@ -113,6 +115,9 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+    auto init_end = chrono::high_resolution_clock::now();
+    float init_time = chrono::duration_cast<std::chrono::milliseconds>(init_end - init_start).count();
+    // printf("init time = %lf\n", init_time);
 
 
     // HOST & DEVICE POINTER ALLOCATED
@@ -124,15 +129,15 @@ int main(int argc, char* argv[]) {
     int* labels = new int[num_points];
 
     // WRAPPER FUNCTION CALLED TO START KMEANS
-
+    float* times;
     if(gpu) {
-        gpu_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points, shared_mem);
+        times = gpu_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points, shared_mem);
     } else {
-        seq_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
+        times = seq_kmeans(centroids, old_centroids, points, labels, threshold, num_cluster, dims, max_num_iter, num_points);
     }
+    // printf("memory overhead time = %lf, algo time = %lf\n", times[0], times[1]);
     
     // PRINT OUTPUTS
-    printf("FINAL:\n");
     if(output) {
         printCentroids(centroids, num_cluster, dims);
     } else {
@@ -151,5 +156,11 @@ int main(int argc, char* argv[]) {
         delete[] old_centroids[i];
     }
     delete[] old_centroids;
-    delete labels;
+    delete[] labels;
+    if(gpu) {
+        delete[] times;
+    }
+    auto end = chrono::high_resolution_clock::now();
+    float time = chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    // printf("final time = %lf\n", time);
 }

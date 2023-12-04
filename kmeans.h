@@ -8,6 +8,7 @@
 #include <cfloat>
 #include <algorithm>
 #include <iostream>
+#include <chrono>
 
 using namespace std;
 
@@ -151,7 +152,8 @@ bool converged(double** centroids, double** oldCentroids, double threshold, int 
 }
 
 // runs k means sequential algorithm. labels & centroids arrays point to the final labels & centroids after algorithm is run
-void seq_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points) {
+float* seq_kmeans(double** centroids, double** old_centroids, double** points, int* labels, double threshold, int num_cluster, int dims, int max_num_iter, int num_points) {
+    auto start = chrono::high_resolution_clock::now();
     int iteration = 0;
     bool done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
     while(!done) {
@@ -165,6 +167,11 @@ void seq_kmeans(double** centroids, double** old_centroids, double** points, int
         averageLabeledCentroids(points, labels, num_cluster, num_points, centroids, dims);
         done = iteration >= max_num_iter || converged(centroids, old_centroids, threshold, num_cluster, dims);
     }
+    auto end = chrono::high_resolution_clock::now();
+    float* times = new float[2];
+    times[0] = 0.0;
+    times[1] = chrono::duration_cast<std::chrono::milliseconds>(end-start).count();
+    return times;
 }
 
 #endif
